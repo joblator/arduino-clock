@@ -1,25 +1,28 @@
 #include <Adafruit_NeoPixel.h>
 #include <arduino.h>
 #include "LedControl.h"
+#include <Servo.h>
 
-#define NUMPIXELS 24
+#define NUMPIXELS 84
 #define PIN 2
 #define DIN 12
 #define CS  10
 #define CLK 13
 LedControl max7219 = LedControl(DIN, CLK, CS, 1);
+
 uint32_t background = 0x00010101;
 uint32_t secHand = 0x000000ff;
 uint32_t minHand = 0x0000ff00;
 uint32_t hourHand = 0x00ff0000;
 uint32_t quaterMark = 0x000f0202;
 uint32_t fiveMark = 0x00395C62;
-uint32_t time = 45343;
+uint32_t time;
 uint16_t secct; //pocitadlo pro generator vterin
 uint8_t last_millis;
 uint16_t serialTimeout;
 uint8_t serialState;
 uint32_t serialTime;
+uint8_t validTime = 0;
 
 
 
@@ -35,7 +38,7 @@ void timeInSec(uint32_t time) {
     time = time / 60;
     hour = time % 24 ;
     showDigitalTime(sec,min,hour);
-    showHourTime(hour);
+    showTime(sec,min,hour);
 }
 void timeInHour(uint32_t time) {
     int sec,min,hour;
@@ -47,7 +50,7 @@ void timeInHour(uint32_t time) {
     showHourTime(hour);
 }
 
-void showtime(uint8_t sec,uint8_t min,uint8_t hour){
+void showTime(uint8_t sec,uint8_t min,uint8_t hour){
     for(int i=0; i<NUMPIXELS; i++) {
     pixels.setPixelColor(i, background);
   }
@@ -72,8 +75,7 @@ void showtime(uint8_t sec,uint8_t min,uint8_t hour){
   if (hour >= 12){
     hour -= 12;
   }
-  pixels.setPixelColor((2 * hour), hourHand);
-  pixels.show();
+  pixels.setPixelColor(60 + (2 * hour), hourHand);
 }
 void showHourTime(uint8_t hour){
       for(int i=0; i<NUMPIXELS; i++) {
@@ -100,18 +102,39 @@ void showDigitalTime(uint8_t sec,uint8_t min,uint8_t hour){
   max7219.setChar(0, 2, c, false);
   max7219.setChar(0, 5, c, false); 
 }
+void serialMachineReset(void){
+  serialState = 0;
+  serialTime = 0;  
+}
+void noValidTime(uint32_t sec){
+  char c;
+  max7219.clearDisplay(0);
+  c = ' ';
+  if ((sec & 1) == 0 ){
+    c = '.'; 
+  }
+  max7219.setChar(0, 0, c, false);
+
+}
+
+void setTime(uint32_t newTime){
+    time = newTime;
+    validTime = 1;
+}
 void serialMachine(uint8_t addedMillis){
   int32_t c;
   c = Serial.read();
   if (c < 0){
     serialTimeout += addedMillis;
     if (serialTimeout >= 5000){
-      serialState = 0;
-      serialTime = 0;
+      serialMachineReset();
     }
     return;
   }
   serialTimeout = 0;
+  if (c == '13'){
+    serialMachineReset();
+  }
   if ((c < '0')||(c > '9')){
     return;
   }
@@ -134,11 +157,11 @@ void serialMachine(uint8_t addedMillis){
       break;
     case 5:
       serialTime += c;
-      time = serialTime;
-      serialState = 0;
+      setTime(serialTime); 
+      serialMachineReset();
       break;
     default:
-      serialState = 0;
+      serialMachineReset();
       break;
   }
 
@@ -152,6 +175,9 @@ void setup() {
   max7219.clearDisplay(0);
   pixels.begin();
   Serial.begin(9600);
+  pixels.clear();
+  pixels.show();
+  serialMachineReset();
   Serial.println("arduino hodiny pro chajdu :)");
   last_millis=(uint8_t)millis(); //inicializace casovani
 
@@ -159,9 +185,6 @@ void setup() {
 
 void loop() {
   uint8_t ms;
-  pixels.clear();
-  timeInSec(time);
-  pixels.show();
   ms = ((uint8_t)millis())-last_millis;
   if (ms != 0) {
     last_millis += ms;
@@ -170,6 +193,15 @@ void loop() {
     if (secct >= 1000) {// pokud mame vterinu
       secct -= 1000; // odzitou vterinu zahodime a jedeme dal
       time += 1;
+      pixels.clear();
+      if (validTime != 0){
+        timeInSec(time);
+      }
+      else{
+        noValidTime(time);
+      }
+      pixels.show();
     }
+
   }
 }
